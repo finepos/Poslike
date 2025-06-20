@@ -1,0 +1,340 @@
+{% extends "layout.html" %}
+
+{% block content %}
+    <style>
+      /* Стилі для рівнів залишків генеруються динамічно через JavaScript */
+    </style>
+    <h1>POSLIKE - Контроль залишків товарів</h1>
+
+    <div class="search-form" style="margin: 20px 0; padding: 20px; background-color: #fff; border: 1px solid #ccc; border-radius: 5px;">
+        <form method="GET" action="{{ url_for('index') }}" id="mainSearchForm">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 15px;">
+                <input type="text" name="search_sku" id="searchSkuInput" placeholder="Пошук по SKU" value="{{ search_sku or '' }}" style="flex: 1 1 150px;">
+                <input type="text" name="search_name" placeholder="Пошук по Назві" value="{{ search_name or '' }}" style="flex: 1 1 200px;">
+                
+                <select name="search_category" id="categoryFilter" style="flex: 1 1 180px;">
+                    <option value="">Всі категорії</option>
+                    {% for category in categories %}
+                        <option value="{{ category }}" {% if search_category == category %}selected{% endif %}>{{ category }}</option>
+                    {% endfor %}
+                </select>
+
+                <div style="flex: 1 1 250px; display:flex; gap: 5px;">
+                    <select name="stock_filter" style="flex: 1;">
+                        <option value="">Фільтр по залишку...</option>
+                        <option value="less" {% if stock_filter == 'less' %}selected{% endif %}>Менше ніж</option>
+                        <option value="more" {% if stock_filter == 'more' %}selected{% endif %}>Більше ніж</option>
+                        <option value="equal" {% if stock_filter == 'equal' %}selected{% endif %}>Дорівнює</option>
+                    </select>
+                    <input type="number" name="stock_quantity" value="{{ stock_quantity or '' }}" placeholder="К-сть" style="flex: 0 1 80px;">
+                </div>
+
+                <div style="flex: 1 1 auto; display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="submit">Шукати</button>
+                    <a href="{{ url_for('index') }}" class="button button-secondary">Очистити</a>
+                </div>
+            </div>
+            
+            <div id="paramFiltersContainer" style="margin-top: 15px; display: none;"></div>
+            <div id="stockLevelFiltersContainer" style="margin-top: 15px; display: none;"></div>
+        </form>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>SKU</th> <th>Назва товару</th> <th>Ціна</th> <th>Залишок</th> <th>В дорозі</th>
+                <th>Мін. залишок</th> <th>Продаж/день</th> <th>Днів до закінчення</th> <th>Дії</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in products %}
+                {% set product = item.product %}
+                <tr class="{{ item.status_class }}">
+                    <td>{{ product.sku }}</td>
+                    <td style="max-width: 400px; word-wrap: break-word;">{{ product.name }}</td>
+                    <td>{{ "%.2f"|format(product.price) }}</td>
+                    <td><b>{{ product.stock }}</b></td>
+                    <td>{{ product.in_transit_quantity }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('update_minimum_stock') }}" style="display: flex; align-items: center; margin: 0;">
+                            <input type="hidden" name="product_id" value="{{ product.id }}">
+                            <input type="number" name="minimum_stock" value="{{ product.minimum_stock or '' }}" placeholder="--" style="width: 70px; padding: 5px; margin-right: 5px; margin-bottom: 0;">
+                            <button type="submit" style="padding: 5px 10px;">OK</button>
+                        </form>
+                    </td>
+                    <td>{{ item.avg_sales_per_day }}</td>
+                    <td>{{ item.days_left }}</td>
+                    <td style="min-width: 210px;">
+                        <div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center;">
+                            <a href="{{ url_for('add_in_transit_form', product_id=product.id) }}" class="button" title="Додати в дорозі">+</a>
+                            <button class="button button-secondary" onclick="openPrintModal({{ product.id }}, '{{ product.name|escape|replace("'", "\\'") }}', '{{ product.sku|escape }}')" title="Друк етикетки">Друк</button>
+                            {% if item.product_url %}<a href="{{ item.product_url }}" target="_blank" class="button" style="background-color: #17a2b8;" title="Відкрити на сайті">Сайт</a>{% endif %}
+                            <button class="button" style="background-color: #28a745;" onclick="showProductImage('{{ item.product_picture }}')" title="Показати фото">Фото</button>
+                        </div>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="9" style="text-align:center;">Товарів за вашим запитом не знайдено.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <div class="pagination-container" style="display: flex; flex-direction: column; align-items: center; gap: 15px; margin-top: 20px;">
+        {% if search_category %}
+            {% if request.args.get('show_all') %}
+                {% set back_args = pagination_args.copy() %}
+                {% do back_args.pop('show_all', None) %}
+                <div class="show-all-container">
+                    <a href="{{ url_for('index', **back_args) }}" class="button button-secondary">Повернутись до сторінок</a>
+                </div>
+            {% elif pagination.total > pagination.per_page %}
+                 <div class="show-all-container">
+                    <a href="{{ url_for('index', show_all='true', **pagination_args) }}" class="button">Показати всі товари категорії</a>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        <div class="pagination">
+            {% if pagination.total > pagination.per_page %}
+                <nav aria-label="Page navigation">
+                    <ul class="pagination-list">
+                        {% for p in pagination.window %}
+                            {% if p %}
+                                <li class="page-item {% if p == pagination.page %}current{% endif %}">
+                                    <a class="page-link" href="{{ url_for('index', page=p, **pagination_args) }}">{{ p }}</a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            {% endif %}
+                        {% endfor %}
+                    </ul>
+                </nav>
+            {% endif %}
+        </div>
+    </div>
+
+<div id="printModalOverlay" class="modal-overlay">
+    <div class="modal-content" style="max-width: 800px;">
+        <span class="modal-close" onclick="closePrintModal()">&times;</span>
+        <h1>Друк етикетки</h1>
+        <p><strong>SKU:</strong> <span id="modalProductSku"></span></p>
+        <p><strong>Товар:</strong> <span id="modalProductName"></span></p>
+        <hr style="margin: 15px 0;">
+        <div id="modalPrintersContainer"></div>
+    </div>
+</div>
+
+<div id="imageModalOverlay" class="modal-overlay" style="background-color: rgba(0,0,0,0.8);">
+    <span class="modal-close" style="color: #fff; font-size: 40px; top: 15px; right: 35px;" onclick="closeImageModal()">&times;</span>
+    <img id="imageModalContent" src="" style="max-height: 90vh; max-width: 90vw; border-radius: 8px;">
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const printers = JSON.parse('{{ printers_json|safe }}');
+    const paramFiltersData = {{ param_filters|tojson }};
+    const colorSettings = {{ color_settings|tojson }};
+    const stockLevelFilter = '{{ stock_level_filter }}';
+
+    const styleSheet = document.createElement("style");
+    let css = '';
+    colorSettings.forEach(setting => {
+        css += `
+            tr.${setting.level_name} { background-color: ${setting.background_color}; color: ${setting.text_color}; }
+            tr.${setting.level_name}:hover { background-color: ${setting.background_color}; opacity: 0.9; }
+        `;
+        if (setting.level_name === 'status-critical') {
+             css += `
+                tr.${setting.level_name} { background-color: ${setting.background_color} !important; color: ${setting.text_color} !important; }
+                tr.${setting.level_name}:hover { background-color: ${setting.background_color} !important; opacity: 0.9; }
+             `;
+        }
+    });
+    styleSheet.innerText = css;
+    document.head.appendChild(styleSheet);
+    
+    const printModalOverlay = document.getElementById('printModalOverlay');
+    const imageModalOverlay = document.getElementById('imageModalOverlay');
+    let printModalTimeout;
+
+    function openPrintModal(productId, productName, productSku) {
+        document.getElementById('modalProductSku').textContent = productSku;
+        document.getElementById('modalProductName').textContent = productName;
+        const container = document.getElementById('modalPrintersContainer');
+        container.innerHTML = '';
+        container.style.cssText = 'display: flex; gap: 15px; align-items: stretch; flex-wrap: wrap;';
+
+        if (printers.length > 0) {
+            printers.forEach((printer, index) => {
+                const form = document.createElement('form');
+                form.onsubmit = (event) => submitPrintJob(event);
+                form.style.cssText = `flex: 1 1 250px; border: 1px solid #eee; padding: 15px; border-radius: 8px; background-color: ${index % 2 === 0 ? '#fff' : '#f8f9fa'}; display: flex; flex-direction: column;`;
+
+                form.innerHTML = `
+                    <div style="flex-grow: 1;">
+                        <input type="hidden" name="product_id" value="${productId}">
+                        <input type="hidden" name="printer_id" value="${printer.id}">
+                        <h4 style="text-align: center; margin-top: 0; margin-bottom: 15px; font-size: 1.1em;">${printer.name} (${printer.label_size})</h4>
+                        <div class="form-group" style="margin-bottom: 10px;">
+                            <label style="font-weight: normal;">Кількість етикеток</label>
+                            <input type="number" name="quantity" value="1" min="1" required class="print-input" style="height: 35px;">
+                        </div>
+                        ${printer.is_for_sorting ? `<div class="form-group" style="margin-bottom: 10px;"><label style="font-weight: normal;">Кількість для сортування</label><input type="number" name="sorting_quantity" min="1" required class="print-input" style="height: 35px;"></div>` : ''}
+                    </div>
+                    <div style="margin-top: auto;"><button type="submit" class="button" style="height: 35px; width: 100%;">Друк</button></div>
+                `;
+                container.appendChild(form);
+            });
+        } else { container.innerHTML = '<p>Принтери не налаштовані.</p>'; }
+        printModalOverlay.style.display = 'flex';
+        clearTimeout(printModalTimeout);
+        printModalTimeout = setTimeout(closePrintModal, 20000); 
+    }
+
+    async function submitPrintJob(event) {
+        event.preventDefault();
+        const form = event.target;
+        const formData = new FormData(form);
+        const button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
+        button.textContent = 'Додаємо...';
+
+        try {
+            const response = await fetch("{{ url_for('execute_print') }}", {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            if (response.ok && typeof showToast === 'function') {
+                showToast(result.message, 'success');
+                closePrintModal();
+            } else if (typeof showToast === 'function') {
+                showToast(result.message || 'Сталася помилка', 'error');
+            }
+        } catch (error) {
+            if (typeof showToast === 'function') {
+                showToast('Не вдалося відправити запит.', 'error');
+            }
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Друк';
+        }
+    }
+
+    function closePrintModal() { clearTimeout(printModalTimeout); if (printModalOverlay) printModalOverlay.style.display = 'none'; }
+    function showProductImage(src) { if(src) { document.getElementById('imageModalContent').src = src; imageModalOverlay.style.display = 'flex'; } }
+    function closeImageModal() { if (imageModalOverlay) imageModalOverlay.style.display = 'none'; }
+    
+    [printModalOverlay, imageModalOverlay].forEach(modal => {
+        if(modal) modal.addEventListener('click', e => { if (e.target === modal) e.target.style.display = 'none'; });
+    });
+
+    const categorySelect = document.getElementById('categoryFilter');
+    const paramsContainer = document.getElementById('paramFiltersContainer');
+    const stockLevelContainer = document.getElementById('stockLevelFiltersContainer');
+
+    function updateDynamicFilters() {
+        const categoryName = categorySelect.value;
+        updateParamFilters(categoryName);
+        updateStockLevelFilters(categoryName);
+    }
+
+    async function updateParamFilters(categoryName) {
+        paramsContainer.innerHTML = '';
+        if (!categoryName) { paramsContainer.style.display = 'none'; return; }
+        paramsContainer.style.display = 'block';
+        paramsContainer.innerHTML = '<h4 style="margin-bottom: 10px; text-align: left;">Фільтри по параметрах <small>(завантаження...)</small></h4>';
+        
+        try {
+            const response = await fetch(`{{ url_for('get_params_for_category') }}?category=${encodeURIComponent(categoryName)}`);
+            if (!response.ok) throw new Error('Network error');
+            const paramsData = await response.json();
+            
+            paramsContainer.innerHTML = '<h4 style="margin-bottom: 10px; text-align: left;">Фільтри по параметрах</h4>';
+            const filterRow = document.createElement('div');
+            filterRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 15px;';
+
+            if (Object.keys(paramsData).length === 0) {
+                filterRow.innerHTML = '<p>Для цієї категорії немає параметрів для фільтрації.</p>';
+            } else {
+                 const sortedParamNames = Object.keys(paramsData).sort();
+                 for (const paramName of sortedParamNames) {
+                    const values = paramsData[paramName];
+                    const selectName = `param_${paramName.replace(/[\s/]+/g, '_')}`;
+                    const wrapper = document.createElement('div');
+                    wrapper.style.cssText = 'flex: 1 1 180px;';
+                    let optionsHTML = values.map(v => `<option value="${v}" ${paramFiltersData[paramName] === v ? 'selected' : ''}>${v}</option>`).join('');
+                    wrapper.innerHTML = `
+                        <label style="font-weight: normal; margin-bottom: 5px; display: block;">${paramName}</label>
+                        <select name="${selectName}" onchange="this.form.submit()">
+                            <option value="">Всі (${paramName})</option>
+                            ${optionsHTML}
+                        </select>
+                    `;
+                    filterRow.appendChild(wrapper);
+                }
+            }
+            paramsContainer.appendChild(filterRow);
+        } catch (error) {
+            console.error('Error fetching parameters:', error);
+            paramsContainer.innerHTML = '<h4>Фільтри по параметрах <small>(помилка завантаження)</small></h4>';
+        }
+    }
+
+    function updateStockLevelFilters(categoryName) {
+        stockLevelContainer.innerHTML = '';
+        if (!categoryName) { stockLevelContainer.style.display = 'none'; return; }
+        stockLevelContainer.style.display = 'block';
+        
+        let buttonsHTML = '<h4 style="margin-bottom: 10px; text-align: left;">Фільтр по залишках</h4><div style="display: flex; flex-wrap: wrap; gap: 10px;">';
+        const currentParams = new URLSearchParams(window.location.search);
+
+        colorSettings.forEach(setting => {
+            currentParams.set('stock_level', setting.level_name);
+            const isActive = stockLevelFilter === setting.level_name;
+            buttonsHTML += `<a href="?${currentParams.toString()}" class="button" style="background-color: ${setting.background_color}; color: ${setting.text_color}; border: ${isActive ? '2px solid #007bff' : '2px solid transparent'};">${setting.label}</a>`;
+        });
+
+        currentParams.delete('stock_level');
+        buttonsHTML += `<a href="?${currentParams.toString()}" class="button button-secondary">Всі рівні</a>`;
+        buttonsHTML += '</div>';
+        stockLevelContainer.innerHTML = buttonsHTML;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const searchInput = document.getElementById('searchSkuInput');
+        if (searchInput) {
+            searchInput.focus();
+            searchInput.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    document.getElementById('mainSearchForm').submit();
+                }
+            });
+            setInterval(() => {
+                const activeElement = document.activeElement;
+                const modals = [document.getElementById('printModalOverlay'), document.getElementById('imageModalOverlay'), document.getElementById('testPrintModalOverlay')];
+                const isModalOpen = modals.some(modal => modal && window.getComputedStyle(modal).display === 'flex');
+                if (!isModalOpen && activeElement !== searchInput && !['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement.tagName)) {
+                    searchInput.focus();
+                }
+            }, 30000);
+        }
+        
+        if (categorySelect) {
+            categorySelect.addEventListener('change', () => {
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.forEach((val, key) => {
+                    if (key.startsWith('param_')) { newUrl.searchParams.delete(key); }
+                });
+                newUrl.searchParams.set('search_category', categorySelect.value);
+                window.location.href = newUrl.toString();
+            });
+            if (categorySelect.value) { updateDynamicFilters(); }
+        }
+    });
+</script>
+{% endblock %}

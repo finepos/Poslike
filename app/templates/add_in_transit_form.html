@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block title %}Додати товар в дорозі{% endblock %}
+{% block content %}
+    <h1>Додати товар в дорозі</h1>
+    <div style="max-width: 500px; margin: auto; padding: 20px; background-color: #fff; border: 1px solid #ccc; border-radius: 5px;">
+        <h3>{{ product.name }}</h3>
+        <p><strong>SKU:</strong> {{ product.sku }}</p>
+        <form action="{{ url_for('add_in_transit') }}" method="post">
+            <input type="hidden" name="product_id" value="{{ product.id }}">
+            <div class="form-group">
+                <label for="quantity">Кількість</label>
+                <input type="number" name="quantity" id="quantity" required min="1">
+            </div>
+            <div class="form-group">
+                <label for="order_number">Номер замовлення</label>
+                <input type="text" name="order_number" id="order_number">
+            </div>
+            <div class="form-group">
+                <label for="arrival_date">Очікувана дата прибуття</label>
+                <input type="date" name="arrival_date" id="arrival_date">
+            </div>
+            <button type="submit">Додати</button>
+        </form>
+    </div>
+{% endblock %}

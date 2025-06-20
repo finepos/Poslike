@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Poslike Stock Control{% endblock %}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f7f6; }
+        .container { max-width: 1800px; margin: 0 auto; padding: 0 15px; }
+        h1, h2, h3 { text-align: center; color: #333; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .back-link { margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px; }
+        textarea { height: 250px; font-family: monospace; }
+        button, .button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 1em; text-align: center; display: inline-block; text-decoration: none; }
+        button:hover, .button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .button-danger { background-color: #dc3545; }
+        .button-danger:hover { background-color: #c82333; }
+        .button-secondary { background-color: #6c757d; }
+        .button-secondary:hover { background-color: #5a6268; }
+        .flash { padding: 15px; margin: 20px 0; border-radius: 5px; text-align: center; }
+        .flash.success { background-color: #d4edda; color: #155724; }
+        .flash.danger { background-color: #f8d7da; color: #721c24; }
+        .flash.warning { background-color: #fff3cd; color: #856404; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); background-color: #fff;}
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: left; vertical-align: middle; }
+        th { background-color: #f2f2f2; }
+        .pagination { margin-top: 20px; text-align: center; }
+        .pagination-list { display: flex; list-style: none; padding: 0; justify-content: center; }
+        .page-item .page-link { margin: 0 2px; text-decoration: none; padding: 8px 12px; border: 1px solid #ccc; color: #007bff;}
+        .page-item .page-link:hover { background-color: #e9ecef; }
+        .page-item.current .page-link { z-index: 1; color: #fff; background-color: #007bff; border-color: #007bff; }
+        .zpl-help { margin-top: 20px; padding: 15px; border: 1px solid #e0e0e0; border-radius: 5px; background-color: #f9f9f9; }
+        .zpl-help ul { margin: 0; padding-left: 20px; }
+        .zpl-help li { margin-bottom: 5px; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); width: 90%; max-width: 500px; position: relative; }
+        .modal-close { position: absolute; top: 10px; right: 15px; font-size: 24px; font-weight: bold; cursor: pointer; color: #aaa; }
+        .modal-close:hover { color: #000; }
+
+        #toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: #fff;
+            font-size: 1em;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="back-link">
+            <a href="{{ url_for('index') }}">← На головну</a>
+            <a href="{{ url_for('settings') }}" style="float: right;">Налаштування</a>
+        </div>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </div>
+
+    <div id="toast-container"></div>
+
+    <div id="testPrintModalOverlay" class="modal-overlay">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeTestPrintModal()">&times;</span>
+            <h1>Тестовий друк</h1>
+            <h3 id="testModalProductName"></h3>
+            <p><strong>SKU:</strong> <span id="testModalProductSku"></span></p>
+            
+            <form onsubmit="submitPrintJob(event)">
+                <input type="hidden" name="product_id" id="testModalProductId">
+                <input type="hidden" name="printer_id" id="testModalPrinterId">
+                
+                <div class="form-group">
+                    <label for="testModalQuantity">Кількість етикеток</label>
+                    <input type="number" name="quantity" id="testModalQuantity" value="1" min="1" required>
+                </div>
+    
+                <div class="form-group" id="testSortingQuantityGroup" style="display: none;">
+                    <label for="testModalSortingQuantity">Кількість для сортування (напр. 200)</label>
+                    <input type="number" name="sorting_quantity" id="testModalSortingQuantity" min="1">
+                </div>
+                
+                <button type="submit">Друк</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const flashes = document.querySelectorAll(".flash");
+            flashes.forEach(function(flash) {
+                setTimeout(function() {
+                    flash.style.display = "none";
+                }, 5000);
+            });
+        });
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                toast.addEventListener('transitionend', () => toast.remove());
+            }, 5000);
+        }
+
+        const testPrintModalOverlay = document.getElementById('testPrintModalOverlay');
+        
+        async function openTestPrintModal(printerId, isForSorting) {
+            try {
+                const response = await fetch("{{ url_for('get_test_product_info') }}");
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    alert('Помилка: ' + (errorData.error || 'Не вдалося завантажити дані для тесту.'));
+                    return;
+                }
+                const product = await response.json();
+
+                document.getElementById('testModalProductName').textContent = product.product_name;
+                document.getElementById('testModalProductSku').textContent = product.product_sku;
+                document.getElementById('testModalProductId').value = product.product_id;
+                document.getElementById('testModalPrinterId').value = printerId;
+                
+                const sortingGroup = document.getElementById('testSortingQuantityGroup');
+                const sortingInput = document.getElementById('testModalSortingQuantity');
+
+                if (isForSorting) {
+                    sortingGroup.style.display = 'block';
+                    sortingInput.required = true;
+                } else {
+                    sortingGroup.style.display = 'none';
+                    sortingInput.required = false;
+                }
+
+                if (testPrintModalOverlay) testPrintModalOverlay.style.display = 'flex';
+
+            } catch (error) {
+                console.error("Fetch error:", error);
+                alert('Сталася помилка. Перевірте консоль для деталей.');
+            }
+        }
+
+        function closeTestPrintModal() {
+            if(testPrintModalOverlay) {
+                testPrintModalOverlay.style.display = 'none';
+            }
+        }
+
+        if(testPrintModalOverlay) {
+            testPrintModalOverlay.addEventListener('click', function(event) {
+                if (event.target === testPrintModalOverlay) {
+                    closeTestPrintModal();
+                }
+            });
+        }
+        
+        async function submitPrintJob(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            const button = form.querySelector('button[type="submit"]');
+            button.disabled = true;
+            button.textContent = 'Додаємо...';
+
+            try {
+                const response = await fetch("{{ url_for('execute_print') }}", {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok && typeof showToast === 'function') {
+                    showToast(result.message, 'success');
+                    // Закриваємо обидва можливі модальні вікна
+                    if (typeof closePrintModal !== 'undefined') closePrintModal();
+                    closeTestPrintModal();
+                } else if (typeof showToast === 'function') {
+                    showToast(result.message || 'Сталася помилка', 'error');
+                }
+            } catch (error) {
+                if (typeof showToast === 'function') {
+                    showToast('Не вдалося відправити запит.', 'error');
+                }
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Друк';
+            }
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
